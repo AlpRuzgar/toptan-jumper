@@ -1,15 +1,88 @@
-class StartScene {
+class StartScene extends Phaser.Scene {
     constructor() {
-        ({ key: 'StartScene' });
+        super('StartScene');
     }
-    preload() { }
 
-    create() { }
+    preload() {
+        this.load.image('title', 'assets/ui/title.png');
+        this.load.image('startButton', 'assets/ui/start_button.png');
+        this.load.image('how-to-button', 'assets/ui/howTo_button.png');
+    }
+
+    create() {
+        this.add.image(config.width / 2, config.height / 2 - 200, 'title').setOrigin(0.5, 0.5).setScale(0.6);
+        this.startButton = this.add.image(config.width / 2, config.height / 2 + 200, 'startButton').setOrigin(0.5, 0.5).setScale(0.3);
+        this.startButton.setInteractive();
+
+        this.startButton.on('pointerdown', () => {
+            this.scene.start('GameScene');
+        });
+
+        this.isPopupOpen = false;
+        this.howToPlayBtn = this.add.image(config.width / 2, config.height - 100, 'how-to-button')
+        this.howToPlayBtn.setScale(0.1)
+        this.howToPlayBtn.setInteractive({ useHandCursor: true });
+
+        // Buton efektleri
+        this.howToPlayBtn.on('pointerover', () => {
+            this.howToPlayBtn.setScale(this.howToPlayBtn.scale * 1.2);
+        });
+
+        this.howToPlayBtn.on('pointerout', () => {
+            this.howToPlayBtn.setScale(this.howToPlayBtn.scale / 1.2);
+        });
+
+        this.howToPlayBtn.on('pointerdown', () => {
+            this.openHowToPlayPopup();
+        });
+    }
+
+    openHowToPlayPopup() {
+        this.howToPlayBtn.disableInteractive();
+        this.startButton.disableInteractive();
+        const popupBg = this.add.rectangle(
+            config.width / 2, config.height / 2,
+            config.width * 0.9, config.height * 0.6,
+            0x000000, 0.85
+        ).setScrollFactor(0).setDepth(2000);
+
+        const howToPlayText = this.add.text(
+            config.width / 2, config.height / 2,
+            'HOW TO YAZ',
+            {
+                fontSize: '30px',
+                fontFamily: 'monospace',
+                fill: '#ffffff',
+                align: 'center',
+                wordWrap: { width: config.width * 0.8 }
+            }
+        ).setOrigin(0.5).setScrollFactor(0).setDepth(2001);
+
+        const closeText = this.add.text(
+            config.width / 2, config.height / 2 + 180,
+            'Kapat', {
+            fontSize: '35px',
+            fontFamily: 'monospace',
+            fill: '#ff6666',
+            backgroundColor: '#ffffff',
+            padding: { x: 12, y: 5 }
+        }
+        ).setOrigin(0.5).setInteractive().setScrollFactor(0).setDepth(2002);
+
+        closeText.on('pointerup', () => {
+            this.isPopupOpen = false;
+            popupBg.destroy();
+            howToPlayText.destroy();
+            closeText.destroy();
+            this.howToPlayBtn.setInteractive();
+            this.startButton.setInteractive();
+        });
+    }
 }
 
-class GameScene {
+class GameScene extends Phaser.Scene {
     constructor() {
-        ({ key: 'GameScene' })
+        super({ key: 'GameScene' })
     }
     preload() {
         this.load.image('background5', 'assets/background/image1x5.png');
@@ -35,8 +108,9 @@ class GameScene {
         this.load.image('scorePanel', 'assets/ui/score_panel.png');
         this.load.image('healthBar', 'assets/ui/health_bar.png');
         this.load.image('healthPoint', 'assets/ui/health_point.png');
-
-
+        this.load.image('skor-panel', 'assets/ui/score_panel.png');
+        this.load.image('sound-on', 'assets/ui/sound_on.png');
+        this.load.image('sound-off', 'assets/ui/sound_off.png');
     }
 
     create() {
@@ -47,7 +121,7 @@ class GameScene {
         this.lastPlatformY = 650;
         this.platformGap = 150;
         this.spaceThreshold = -(10000 * 0.39);
-        this.victoryY = this.spaceThreshold - 7800;
+        this.victoryY = this.spaceThreshold - 8400;
         this.platformsSpawned = 0; //tüm oyunda 83 platform spawn ediliyor
 
         this.hearts = 5;
@@ -89,10 +163,13 @@ class GameScene {
         this.addBackground(config.width / 2, config.height - 3 * (13200 / 5), 'background2');
         this.addBackground(config.width / 2, config.height - 4 * (13200 / 5), 'background1');
 
+        this.addUIElements();
+
         this.player = this.physics.add.sprite(config.width / 2, config.height - 400, 'player'); //config.height - 400
         this.player.setScale(0.35);
         this.player.setCollideWorldBounds(false);
         this.player.setDepth(100);
+        this.maxHeight = this.player.y;
 
         // Zemini ve trambolini oluşturma
         this.createInitialGround();
@@ -126,12 +203,24 @@ class GameScene {
         this.physics.add.collider(this.player, this.movingPlatforms, (player, platform) => {
             this.handlePlatformCollision(this.jumpPower, platform, player);
         }, this.onlyTopCollision, this);
-        this.physics.add.collider(this.player, this.enemies, (player, enemy) => {
-            this.handleGameOver();
+
+        this.physics.add.overlap(this.player, this.enemies, (player, enemy) => {
+            this.handleEnemyHit(enemy);
         });
         this.physics.add.overlap(this.player, this.bullets, (player, bullet) => {
             this.handleBulletHit(bullet);
         });
+
+        // Trophy'yi victoryY konumuna yerleştir
+        this.trophy = this.physics.add.sprite(config.width / 2, this.victoryY, 'trophy');
+        this.trophy.setScale(0.2);
+        this.trophy.body.setSize(this.trophy.width * 0.2, this.trophy.height * 0.2);
+        this.trophy.body.setAllowGravity(false);
+        this.trophy.setImmovable(true);
+
+        this.physics.add.overlap(this.player, this.trophy, () => {
+            this.handleVictory();
+        }, null, this);
     }
 
     update() {
@@ -145,6 +234,13 @@ class GameScene {
 
         if (this.player.y < this.spaceThreshold) {
             this.inSpace = true;
+        }
+        if (this.player.y < this.maxHeight) {
+            this.maxHeight = this.player.y;
+            console.log('maxHeight: ' + this.maxHeight);
+        }
+        if (this.player.y > this.cameras.main.scrollY + config.height) {
+            this.handleGameOver();
         }
         // Kamera sadece yukarı çıkarken takip etsin
         const camera = this.cameras.main;
@@ -173,7 +269,7 @@ class GameScene {
                     break;
             }
         }
-        if (this.lastEnemyY > this.spawnHighPoint && this.lastEnemyY > this.victoryY + 800) {
+        if (this.lastEnemyY > this.spawnHighPoint && this.lastEnemyY > this.victoryY + 1200) {
             if (!this.inSpace) {
                 this.addBird();
             }
@@ -198,6 +294,36 @@ class GameScene {
                 bullet.destroy();
             }
         });
+    }
+
+    addUIElements() {
+        // Score image
+        this.skor = this.add.image(110, 50, 'skor-panel');
+        this.skor.setScale(0.40); // Adjust scale as needed
+        this.skor.setDepth(15)
+        this.skor.setScrollFactor(0); // Kamerayla sabit kalsın
+
+        // Score value text
+        this.itemScoreText = this.add.text(155, 48, '0', {
+            fontSize: '30px',
+            fontFamily: 'monospace',
+            fontWeight: 'bold',
+            fill: '#ea4325',
+            stroke: '#f2d855',
+            strokeThickness: 4
+        });
+        this.itemScoreText.setOrigin(0, 0.5);
+        this.itemScoreText.setScrollFactor(0);
+        this.itemScoreText.setDepth(15)
+
+        this.heartIcons = [];
+        for (let i = 0; i < this.hearts; i++) {
+            let heart = this.add.image(65 + i * 20, 100, 'healthPoint');
+            heart.setScale(0.12); // İsteğe göre ayarla
+            heart.setScrollFactor(0); // Kamerayla sabit kalsın
+            heart.setDepth(15)
+            this.heartIcons.push(heart);
+        }
     }
 
 
@@ -299,8 +425,29 @@ class GameScene {
         this.physics.pause();
         this.scene.start('GameOverScene')
     }
+
+    handleVictory() {
+        this.physics.pause();
+        this.scene.start('WinScene');
+    }
+    handleFall() {
+        if (this.player.y > this.maxHeight + config.height + 300) {
+            this.handleGameOver();
+        }
+    }
+
+    handleEnemyHit(enemy) {
+        for (let i = 0; i < 4; i++) {
+            this.handleDamage();
+        }
+        enemy.destroy();
+        if (this.hearts < 1) {
+            this.handleGameOver();
+        }
+        console.log('hearts: ' + this.hearts);
+    }
     handleBulletHit(bullet) {
-        this.hearts--;
+        this.handleDamage();
         bullet.destroy();
         if (this.hearts < 1) {
             this.handleGameOver();
@@ -308,9 +455,25 @@ class GameScene {
         console.log('hearts' + this.hearts)
     }
 
+    handleDamage() {
+        this.hearts -= 1;
+        const heartToRemove = this.heartIcons[this.hearts];
+
+        // Fade-out efekti ile kalbi yok et
+        this.tweens.add({
+            targets: heartToRemove,
+            alpha: 0,
+            duration: 300,
+            ease: 'Linear',
+            onComplete: () => {
+                heartToRemove.destroy();
+            }
+        });
+    }
+
     addCoin() {
         let y = this.lastCoinY - this.coinGap;
-        this.coin = this.coins.create(Phaser.Math.Between(100, config.height - 100), y, 'coin');
+        this.coin = this.coins.create(Phaser.Math.Between(100, config.width - 100), y, 'coin');
         this.coin.body.setAllowGravity(false);
         this.coin.setScale(0.1);
         this.lastCoinY = this.coin.y;
@@ -320,6 +483,7 @@ class GameScene {
     collectCoin(coin) {
         coin.destroy();
         this.score += 10;
+        this.itemScoreText.setText(this.score);
         console.log('score: ' + this.score)
     }
 
@@ -457,6 +621,18 @@ class GameScene {
         this.lastEnemyY = ufo.y;
         this.enemySpawned++;
         console.log('Düşman Spawned:', this.enemySpawned);
+
+        this.tweens.add({
+            targets: ufo,
+            x: ufo.x + Phaser.Math.Between(-40, 40),
+            y: y - 10,
+            angle: 10,
+            alpha: 0.65,
+            duration: 2000,
+            yoyo: true,
+            repeat: -1,
+            ease: 'Sine.easeInOut'
+        });
     }
 
     addAlien() {
@@ -483,6 +659,7 @@ class GameScene {
             repeat: -1,
             ease: 'Sine.easeInOut'
         });
+
 
         // Ateş etme döngüsü (her 2 saniyede bir dene)
         this.time.addEvent({
@@ -527,20 +704,20 @@ class GameScene {
     }
 }
 
-class GameOverScene {
+class GameOverScene extends Phaser.Scene {
     constructor() {
-        ({ key: 'GameOverScene' });
+        super({ key: 'GameOverScene' });
     }
     preload() {
-        this.add.image();
+        this.add.image('resetButton', 'assets/ui/restart.png');
     }
 
     create() { }
 }
 
-class WinScene {
+class WinScene extends Phaser.Scene {
     constructor() {
-        ({ key: 'WinScene' });
+        super({ key: 'WinScene' });
     }
 
     preload() {
@@ -567,7 +744,7 @@ const config = {
             debug: true,
         }
     },
-    scene: [ /* StartScene,*/ GameScene /*, GameOverScene, WinScene*/]
+    scene: [StartScene, GameScene]//StartScene, GameScene , GameOverScene, WinScene]
 };
 
 const game = new Phaser.Game(config);
