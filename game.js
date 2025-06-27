@@ -50,9 +50,16 @@ class GameScene {
         this.victoryY = this.spaceThreshold - 7800;
         this.platformsSpawned = 0; //tüm oyunda 83 platform spawn ediliyor
 
+        this.hearts = 5;
+
         this.lastEnemyY = 0;
-        this.enemyGap = 300; // düşmanların spawn aralığı
+        this.enemyGap = 900; // düşmanların spawn aralığı
         this.enemySpawned = 0; // düşman sayacı
+
+        this.score = 0;
+        this.lastCoinY = 650;
+        this.coinGap = 100;
+        this.coinSpawned = 0;
 
         this.inSpace = false;
 
@@ -94,7 +101,37 @@ class GameScene {
             allowGravity: false
         });
 
+        this.coins = this.physics.add.group();
+        this.normalPlatforms = this.physics.add.staticGroup();
+        this.breakingPlatforms = this.physics.add.group();
+        this.movingPlatforms = this.physics.add.group();
+        this.enemies = this.physics.add.group();
+        this.bullets = this.physics.add.group();
 
+        this.physics.add.overlap(this.player, this.coins, (player, coin) => {
+            this.collectCoin(coin);
+        });
+        // Normal zıplama için
+        this.physics.add.collider(this.player, this.normalPlatforms, (player, platform) => {
+            this.handlePlatformCollision(this.jumpPower, platform, player);
+        }, this.onlyTopCollision, this);
+
+        // Kırılan platformlar için
+        this.physics.add.collider(this.player, this.breakingPlatforms, (player, platform) => {
+            this.handlePlatformCollision(this.jumpPower, platform, player);
+            platform.destroy(); // kır
+        }, this.onlyTopCollision, this);
+
+        // Hareketli platformlar (aynı mantıkla)
+        this.physics.add.collider(this.player, this.movingPlatforms, (player, platform) => {
+            this.handlePlatformCollision(this.jumpPower, platform, player);
+        }, this.onlyTopCollision, this);
+        this.physics.add.collider(this.player, this.enemies, (player, enemy) => {
+            this.handleGameOver();
+        });
+        this.physics.add.overlap(this.player, this.bullets, (player, bullet) => {
+            this.handleBulletHit(bullet);
+        });
     }
 
     update() {
@@ -139,7 +176,8 @@ class GameScene {
         if (this.lastEnemyY > this.spawnHighPoint && this.lastEnemyY > this.victoryY + 800) {
             if (!this.inSpace) {
                 this.addBird();
-            } else {
+            }
+            else {
                 switch (this.enemySpawned % 2) {
                     case 0:
                         this.spaceEnemySpawner('ufo');
@@ -151,6 +189,15 @@ class GameScene {
             }
 
         }
+        if (this.lastCoinY > this.spawnHighPoint && this.lastCoinY > this.victoryY + 800) {
+            this.addCoin();
+
+        }
+        this.bullets.getChildren().forEach(bullet => {
+            if (this.time.now - bullet.birthTime > bullet.maxLife) {
+                bullet.destroy();
+            }
+        });
     }
 
 
@@ -243,11 +290,43 @@ class GameScene {
             }
         }
     }
+    onlyTopCollision(player, platform) {
+        const playerBottom = player.y + player.displayHeight / 2;
+        const platformTop = platform.y - platform.displayHeight / 2;
+        return player.body.velocity.y >= 0 && playerBottom <= platformTop + 5;
+    }
+    handleGameOver() {
+        this.physics.pause();
+        this.scene.start('GameOverScene')
+    }
+    handleBulletHit(bullet) {
+        this.hearts--;
+        bullet.destroy();
+        if (this.hearts < 1) {
+            this.handleGameOver();
+        }
+        console.log('hearts' + this.hearts)
+    }
 
-    addNormalPlatforms() {
+    addCoin() {
+        let y = this.lastCoinY - this.coinGap;
+        this.coin = this.coins.create(Phaser.Math.Between(100, config.height - 100), y, 'coin');
+        this.coin.body.setAllowGravity(false);
+        this.coin.setScale(0.1);
+        this.lastCoinY = this.coin.y;
+        this.coinSpawned++;
+        console.log(this.coinSpawned)
+    }
+    collectCoin(coin) {
+        coin.destroy();
+        this.score += 10;
+        console.log('score: ' + this.score)
+    }
+
+    addNormalPlatform() {
         let y = this.lastPlatformY - this.platformGap;
         let platformTexture = this.inSpace ? 'platformSpace' : 'platform';
-        this.platform = this.physics.add.staticSprite(Phaser.Math.Between(0, config.width), y, platformTexture);
+        this.platform = this.normalPlatforms.create(Phaser.Math.Between(0, config.width), y, platformTexture);
         this.platform.setScale(120 / this.platform.width, 42 / this.platform.height);
 
         this.platform.body.setSize(this.platform.width * 0.8, this.platform.height * 0.1);
@@ -255,21 +334,11 @@ class GameScene {
 
         this.lastPlatformY = this.platform.y;
         this.platformsSpawned++;
-
-        this.physics.add.collider(this.player, this.platform,
-            (player, platform) => { this.handlePlatformCollision(this.jumpPower, platform, player); },
-            (player, platform) => {
-                const playerBottom = player.y + player.displayHeight / 2;
-                const platformTop = platform.y - platform.displayHeight / 2;
-                return player.body.velocity.y >= 0 && playerBottom <= platformTop + 5;
-            }
-        );
-
     }
-    addMovingPlatforms() {
+    addMovingPlatform() {
         let y = this.lastPlatformY - this.platformGap;
         let platformTexture = this.inSpace ? 'platformSpace' : 'movingPlatform';
-        this.movingPlatform = this.physics.add.sprite(Phaser.Math.Between(0, config.width), y, platformTexture);
+        this.movingPlatform = this.movingPlatforms.create(Phaser.Math.Between(0, config.width), y, platformTexture);
         this.movingPlatform.setScale(120 / this.movingPlatform.width, 42 / this.movingPlatform.height);
         this.movingPlatform.body.setAllowGravity(false);
         this.movingPlatform.setImmovable(true);
@@ -290,15 +359,6 @@ class GameScene {
             repeat: -1
         });
 
-        this.physics.add.collider(this.player, this.movingPlatform,
-            (player, platform) => { this.handlePlatformCollision(this.jumpPower, platform, player); },
-            (player, platform) => {
-                const playerBottom = player.y + player.displayHeight / 2;
-                const platformTop = platform.y - platform.displayHeight / 2;
-                return player.body.velocity.y >= 0 && playerBottom <= platformTop + 5;
-            }
-        );
-
         // daha yumuşak ve çeşitli hareket
         let moveDistance = Phaser.Math.Between(100, 200);
         let moveDuration = Phaser.Math.Between(1500, 2500); // Daha çeşitli hızlar
@@ -312,10 +372,10 @@ class GameScene {
         });
     }
 
-    addBreakingPlatforms() {
+    addBreakingPlatform() {
         let y = this.lastPlatformY - this.platformGap;
         let platformTexture = this.inSpace ? 'platformSpace' : 'breakingPlatform';
-        this.breakingPlatform = this.physics.add.sprite(Phaser.Math.Between(0, config.width), y, platformTexture);
+        this.breakingPlatform = this.breakingPlatforms.create(Phaser.Math.Between(0, config.width), y, platformTexture);
         this.breakingPlatform.setScale(120 / this.breakingPlatform.width, 42 / this.breakingPlatform.height);
         this.breakingPlatform.body.allowGravity = false;
         this.breakingPlatform.setImmovable(true);
@@ -330,44 +390,29 @@ class GameScene {
         if (this.inSpace) {
             this.breakingPlatform.setAlpha(0.8);
         }
-
-        this.physics.add.collider(this.player, this.breakingPlatform,
-            (player, platform) => {
-                // Yukarıdan çarpınca hem zıpla hem kır
-                this.handlePlatformCollision(this.jumpPower, platform, player);
-                platform.destroy(); // kır platformu
-            },
-            (player, platform) => {
-                // Yalnızca üstten gelen çarpmalar collision'a izin versin
-                const playerBottom = player.y + player.displayHeight / 2;
-                const platformTop = platform.y - platform.displayHeight / 2;
-                return player.body.velocity.y >= 0 && playerBottom <= platformTop + 5;
-            }
-        );
         this.breakingPlatform.refreshBody();
     }
 
     platformSpawner(keyword) {
         switch (keyword) {
             case 'normal':
-                this.addNormalPlatforms();
+                this.addNormalPlatform();
                 break;
             case 'moving':
-                this.addMovingPlatforms();
+                this.addMovingPlatform();
                 break;
             case 'breaking':
-                this.addBreakingPlatforms();
+                this.addBreakingPlatform();
                 break;
             default:
                 console.error('Geçersiz platform türü:', keyword);
         }
     }
-
     addBird() {
         if (this.inSpace) return;
         let y = this.lastEnemyY - this.enemyGap;
 
-        const bird = this.physics.add.sprite(Phaser.Math.Between(100, config.width - 100), y, 'bird');
+        let bird = this.enemies.create(Phaser.Math.Between(100, config.width - 100), y, 'bird');
         bird.setScale(1.2);
         bird.body.setAllowGravity(false);
         bird.body.moves = false;
@@ -402,14 +447,14 @@ class GameScene {
     addUFO() {
         if (!this.inSpace) return;
         let y = this.lastEnemyY - this.enemyGap;
-        this.ufo = this.physics.add.sprite(Phaser.Math.Between(100, config.width - 100), y, 'ufo');
-        this.ufo.setScale(1.2);
-        this.ufo.body.setGravity(0, 0);
-        this.ufo.body.velocity.y = 0;
-        this.ufo.body.allowGravity = false;
-        this.ufo.body.moves = false;
-        this.ufo.setImmovable(true);
-        this.lastEnemyY = this.ufo.y;
+        const ufo = this.enemies.create(Phaser.Math.Between(100, config.width - 100), y, 'ufo');
+        ufo.setScale(1.2);
+        ufo.body.setGravity(0, 0);
+        ufo.body.velocity.y = 0;
+        ufo.body.allowGravity = false;
+        ufo.body.moves = false;
+        ufo.setImmovable(true);
+        this.lastEnemyY = ufo.y;
         this.enemySpawned++;
         console.log('Düşman Spawned:', this.enemySpawned);
     }
@@ -418,8 +463,7 @@ class GameScene {
         if (!this.inSpace) return;
 
         let y = this.lastEnemyY - this.enemyGap;
-        const alien = this.physics.add.sprite(Phaser.Math.Between(100, config.width - 100), y, 'alien');
-
+        const alien = this.enemies.create(Phaser.Math.Between(100, config.width - 100), y, 'alien');
         alien.setScale(1.2);
         alien.body.allowGravity = false;
         alien.body.moves = false;
@@ -447,7 +491,7 @@ class GameScene {
             callback: () => {
                 const distance = Phaser.Math.Distance.Between(alien.x, alien.y, this.player.x, this.player.y);
                 if (distance < 800) {
-                    const bullet = this.alienBullets.create(alien.x, alien.y, 'bullet');
+                    const bullet = this.bullets.create(alien.x, alien.y, 'bullet');
                     bullet.setScale(1.0);
                     bullet.body.allowGravity = false;
 
@@ -458,6 +502,8 @@ class GameScene {
                     bullet.body.velocity.y = Math.sin(angle) * bulletSpeed;
 
                     bullet.setAngle(Phaser.Math.RadToDeg(angle) - 90);
+                    bullet.birthTime = this.time.now;
+                    bullet.maxLife = 4000; // 4 saniye yaşasın
                 }
             }
         });
@@ -526,9 +572,6 @@ const config = {
 
 const game = new Phaser.Game(config);
 
-//TODO: can sistemi
-//TODO: düşman ve bullet çarpışması
-//TODO: coinler
-//TODO: skor sistemi
+//TODO: UI
 //TODO: başlangıç ve bitiş sahneleri
 
