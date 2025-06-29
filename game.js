@@ -288,8 +288,9 @@ class GameScene extends Phaser.Scene {
             this.maxHeight = this.player.y;
             console.log('maxHeight: ' + this.maxHeight);
         }
-        if (this.player.y > this.cameras.main.scrollY + config.height) {
+        if (this.player.y > this.maxHeight + config.height / 2 + 50) {
             this.handleGameOver();
+            //TODO: düşme sesi bul ve ekle
         }
         // Kamera sadece yukarı çıkarken takip etsin
         const camera = this.cameras.main;
@@ -527,23 +528,33 @@ class GameScene extends Phaser.Scene {
         return player.body.velocity.y >= 0 && playerBottom <= platformTop + 5;
     }
     handleGameOver() {
-        this.physics.pause();
-        this.scene.start('GameOverScene')
+        this.gameActive = false;
+        this.physics.world.pause();
+        this.sound.stopAll();
+        this.time.delayedCall(1000, () => {
+            this.scene.start('GameOverScene', { score: this.score });
+        });
     }
 
     handleVictory() {
-        this.physics.pause();
-        this.scene.start('WinScene');
-    }
-    handleFall() {
-        if (this.player.y > this.maxHeight + config.height + 300) {
-            this.handleGameOver();
-        }
+        this.gameActive = false;
+        this.sound.stopAll();
+        this.physics.world.pause();
+        this.time.delayedCall(500, () => {
+            this.scene.start('WinScene', { score: this.score });
+        });
     }
 
     handleEnemyHit(enemy) {
-        for (let i = 0; i < 4; i++) {
-            this.handleDamage();
+        if (this.hearts >= 4) {
+            for (let i = 0; i < 4; i++) {
+                this.handleDamage();
+            }
+        }
+        else {
+            for (let i = 0; i < this.hearts; i++) {
+                this.handleDamage();
+            }
         }
         enemy.destroy();
         if (this.hearts < 1) {
@@ -563,6 +574,11 @@ class GameScene extends Phaser.Scene {
     handleDamage() {
         this.hearts -= 1;
         const heartToRemove = this.heartIcons[this.hearts];
+        this.player.setTint(0xff0000); // Kırmızı
+
+        this.time.delayedCall(1000, () => {
+            this.player.clearTint(); // 1 saniye sonra eski haline dön
+        });
 
         // Fade-out efekti ile kalbi yok et
         this.tweens.add({
@@ -813,11 +829,74 @@ class GameOverScene extends Phaser.Scene {
     constructor() {
         super({ key: 'GameOverScene' });
     }
+    init(data) {
+        this.score = data.score || 0;
+    }
     preload() {
-        this.add.image('resetButton', 'assets/ui/restart.png');
+        this.load.image('resetButton', 'assets/ui/restart_button.png');
+        this.load.image('game-over', 'assets/ui/game_over_text_sky.png');
+        this.load.image('background5', 'assets/background/image1x5.png');
+        this.load.image('ground', 'assets/ground.png');
+        this.load.image('game-over-player', 'assets/game-over-player.png');
     }
 
-    create() { }
+    create() {
+        this.add.image(config.width / 2, config.height / 2 - 200, 'game-over').setScale(1.8);
+        this.addBackground(config.width / 2, config.height, 'background5');
+
+        this.resetButton = this.add.image(config.width / 2, config.height / 2 + 400, 'resetButton').setScale(0.4);
+        this.resetButton.setInteractive();
+        this.resetButton.on('pointerdown', () => {
+            this.scene.start('GameScene');
+        });
+
+        // Score text
+        this.finalScoreText = this.add.text(
+            config.width / 2 - 100,
+            config.height / 2,
+            'SCORE: ' + this.score,
+            {
+                fontSize: '40px',
+                fontFamily: 'monospace',
+                fill: '#ffffff',
+                stroke: '#00E5FF',
+                strokeThickness: 3
+            }
+        );
+
+        this.createInitialGround();
+
+        this.gameOverPlayer = this.add.image(config.width / 2 + 220, config.height - 320, 'game-over-player');
+        this.gameOverPlayer.setScale(0.2);
+    }
+    addBackground(x, y, texture) {
+        this.background = this.add.image(x, y, texture);
+        this.background.setOrigin(0.5, 1);
+        this.background.displayWidth = config.width;
+        this.background.setScrollFactor(0.9);
+        this.background.setDepth(-1);
+    }
+    createInitialGround() {
+        // Trambolin görüntüsü
+        this.trampolineFrame = this.add.image(config.width / 2, config.height - 300, 'ground').setScale(2).setDepth(1);
+        this.trampolineMat = this.add.image(config.width / 2, config.height - 300, 'ground').setScale(2).setDepth(0);
+
+        // Mask için grafik nesnesi oluştur
+        this.graphics = this.make.graphics();
+        this.graphics.fillStyle(0xffffff);
+        this.trampolineWidth = this.trampolineMat.width * this.trampolineMat.scaleX;
+        this.trampolineHeight = this.trampolineMat.height * this.trampolineMat.scaleY;
+
+        this.graphics.fillEllipse(
+            this.trampolineMat.x,
+            this.trampolineMat.y,
+            this.trampolineWidth * 0.6,
+            this.trampolineHeight * 0.3
+        );
+
+        this.mask = this.graphics.createGeometryMask(); // düzeltme burada
+        this.trampolineMat.setMask(this.mask);
+    }
 }
 
 class WinScene extends Phaser.Scene {
@@ -825,11 +904,46 @@ class WinScene extends Phaser.Scene {
         super({ key: 'WinScene' });
     }
 
-    preload() {
-
+    init(data) {
+        this.score = data.score || 0;
     }
 
-    create() { }
+    preload() {
+        this.load.image('winText', 'assets/ui/victory_text_space.png');
+        this.load.image('resetButton', 'assets/ui/restart_button.png');
+        this.load.image('background', 'assets/background/image1x1.png');
+        this.load.image('restart-button', 'assets/ui/restart_button_space.png');
+    }
+
+    create() {
+        this.add.image(config.width / 2, config.height / 2, 'background').setScale(1.8)
+            .setScale(1.0)
+            .setScrollFactor(0)
+
+        this.add.image(config.width / 2, config.height / 2 - 200, 'winText').setScale(1)
+
+        // Score text
+        this.finalScoreText = this.add.text(
+            config.width / 2,
+            config.height / 2 + 200,
+            'SCORE: ' + this.score,
+            {
+                fontSize: '40px',
+                fontFamily: 'monospace',
+                fill: '#ffffff',
+                stroke: '#00E5FF',
+                strokeThickness: 3
+            }
+        );
+        this.finalScoreText.setOrigin(0.5);
+        this.finalScoreText.setScrollFactor(0);
+
+        this.restartButton = this.add.image(config.width / 2, config.height / 2 + 400, 'restart-button').setDepth(10).setScale(0.4);
+        this.restartButton.setInteractive();
+        this.restartButton.on('pointerdown', () => {
+            this.scene.start('GameScene');
+        });
+    }
 }
 
 const config = {
@@ -849,12 +963,14 @@ const config = {
             debug: true,
         }
     },
-    scene: [StartScene, GameScene]//StartScene, GameScene , GameOverScene, WinScene]
+    scene: [StartScene, GameScene, GameOverScene, WinScene]//StartScene, GameScene , GameOverScene, WinScene]
 };
 
 const game = new Phaser.Game(config);
 
+//TODO: başlangıç butonlarına animasyon
 //TODO: Sesler
+//TODO: game overda karakteri boya
 //TODO: UI
 //TODO: başlangıç ve bitiş sahneleri
 
