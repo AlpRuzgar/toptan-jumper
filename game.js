@@ -1131,5 +1131,3 @@ const config = {
 
 const game = new Phaser.Game(config);
 
-//TODO: game overda karakteri boya
-
