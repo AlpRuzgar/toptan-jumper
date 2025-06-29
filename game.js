@@ -7,11 +7,14 @@ class StartScene extends Phaser.Scene {
         this.load.image('title', 'assets/ui/title.png');
         this.load.image('startButton', 'assets/ui/start_button.png');
         this.load.image('how-to-button', 'assets/ui/howTo_button.png');
+        this.load.image('background5', 'assets/background/image1x5.png');
+        this.load.image('start-player', 'assets/start-player.png');
+        this.load.image('ground', 'assets/ground.png');
     }
 
     create() {
         this.add.image(config.width / 2, config.height / 2 - 200, 'title').setOrigin(0.5, 0.5).setScale(0.6);
-        this.startButton = this.add.image(config.width / 2, config.height / 2 + 200, 'startButton').setOrigin(0.5, 0.5).setScale(0.3);
+        this.startButton = this.add.image(config.width / 2, config.height / 2 + 100, 'startButton').setDepth(10).setScale(0.3);
         this.startButton.setInteractive();
 
         this.startButton.on('pointerdown', () => {
@@ -35,6 +38,12 @@ class StartScene extends Phaser.Scene {
         this.howToPlayBtn.on('pointerdown', () => {
             this.openHowToPlayPopup();
         });
+
+        this.addBackground(config.width / 2, config.height, 'background5');
+        this.startPlayer = this.add.image(config.width / 2 + 220, config.height - 300, 'start-player');
+        this.startPlayer.setScale(0.12);
+
+        this.createInitialGround();
     }
 
     openHowToPlayPopup() {
@@ -78,6 +87,36 @@ class StartScene extends Phaser.Scene {
             this.startButton.setInteractive();
         });
     }
+    addBackground(x, y, texture) {
+        this.background = this.add.image(x, y, texture);
+        this.background.setOrigin(0.5, 1);
+        this.background.displayWidth = config.width;
+        this.background.setScrollFactor(0.9);
+        this.background.setDepth(-1);
+    }
+
+    createInitialGround() {
+        // Trambolin görüntüsü
+        this.trampolineFrame = this.add.image(config.width / 2, config.height - 300, 'ground').setScale(2).setDepth(1);
+        this.trampolineMat = this.add.image(config.width / 2, config.height - 300, 'ground').setScale(2).setDepth(0);
+
+        // Mask için grafik nesnesi oluştur
+        this.graphics = this.make.graphics();
+        this.graphics.fillStyle(0xffffff);
+        this.trampolineWidth = this.trampolineMat.width * this.trampolineMat.scaleX;
+        this.trampolineHeight = this.trampolineMat.height * this.trampolineMat.scaleY;
+
+        this.graphics.fillEllipse(
+            this.trampolineMat.x,
+            this.trampolineMat.y,
+            this.trampolineWidth * 0.6,
+            this.trampolineHeight * 0.3
+        );
+
+        this.mask = this.graphics.createGeometryMask(); // düzeltme burada
+        this.trampolineMat.setMask(this.mask);
+    }
+
 }
 
 class GameScene extends Phaser.Scene {
@@ -166,7 +205,7 @@ class GameScene extends Phaser.Scene {
         this.addUIElements();
 
         this.player = this.physics.add.sprite(config.width / 2, config.height - 400, 'player'); //config.height - 400
-        this.player.setScale(0.35);
+        this.player.setScale(0.1);
         this.player.setCollideWorldBounds(false);
         this.player.setDepth(100);
         this.maxHeight = this.player.y;
@@ -196,13 +235,23 @@ class GameScene extends Phaser.Scene {
         // Kırılan platformlar için
         this.physics.add.collider(this.player, this.breakingPlatforms, (player, platform) => {
             this.handlePlatformCollision(this.jumpPower, platform, player);
-            platform.destroy(); // kır
+            this.tweens.add({
+                targets: platform,
+                alpha: 0,
+                y: platform.y + 20,
+                duration: 300,
+                delay: 50,
+                onComplete: () => {
+                    platform.destroy();
+                }
+            });
         }, this.onlyTopCollision, this);
 
         // Hareketli platformlar (aynı mantıkla)
         this.physics.add.collider(this.player, this.movingPlatforms, (player, platform) => {
             this.handlePlatformCollision(this.jumpPower, platform, player);
         }, this.onlyTopCollision, this);
+
 
         this.physics.add.overlap(this.player, this.enemies, (player, enemy) => {
             this.handleEnemyHit(enemy);
@@ -415,6 +464,62 @@ class GameScene extends Phaser.Scene {
                 this.player.body.velocity.y = -jumpPower;
             }
         }
+        this.handlePlatformAnimation(platform);
+        this.animatePlayerLanding(this.player);
+    }
+    handlePlatformAnimation(platform) {
+        this.tweens.add({
+            targets: platform,
+            y: platform.y + 15,
+            duration: 150,
+            yoyo: true,
+            ease: 'Bounce.easeOut'
+        });
+
+
+        this.tweens.add({
+            targets: platform,
+            scaleY: platform.scaleY * 0.7,
+            duration: 150,
+            yoyo: true,
+            ease: 'Quad.easeOut'
+        });
+
+
+        let originalTint = platform.tintTopLeft;
+        platform.setTint(0xffffff);
+        this.time.delayedCall(150, () => {
+            platform.setTint(originalTint);
+        });
+    }
+    animatePlayerLanding(player) {
+        this.tweens.add({
+            targets: player,
+            scaleX: player.scaleX * 1.01,
+            scaleY: player.scaleY * 0.7,
+            duration: 120,
+            ease: 'Quad.easeOut',
+            onComplete: () => {
+
+                this.tweens.add({
+                    targets: player,
+                    scaleX: 0.1,
+                    scaleY: 0.1,
+                    duration: 150,
+                    ease: 'Back.easeOut',
+                    onComplete: () => {
+                        // Return to original scale
+                        this.tweens.add({
+                            targets: player,
+                            scaleX: player.scaleX,
+                            scaleY: player.scaleY,
+                            duration: 100,
+                            ease: 'Sine.easeInOut'
+                        });
+                    }
+                });
+            }
+        });
     }
     onlyTopCollision(player, platform) {
         const playerBottom = player.y + player.displayHeight / 2;
@@ -749,6 +854,7 @@ const config = {
 
 const game = new Phaser.Game(config);
 
+//TODO: Sesler
 //TODO: UI
 //TODO: başlangıç ve bitiş sahneleri
 
