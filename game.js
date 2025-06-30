@@ -199,6 +199,8 @@ class GameScene extends Phaser.Scene {
     constructor() {
         super({ key: 'GameScene' })
     }
+
+
     preload() {
         this.load.image('background5', 'assets/background/image1x5.png');
         this.load.image('background4', 'assets/background/image1x4.png');
@@ -252,22 +254,32 @@ class GameScene extends Phaser.Scene {
         this.platformGap = 150;
         this.spaceThreshold = -(10000 * 0.39);
         this.victoryY = this.spaceThreshold - 8400;
-        this.platformsSpawned = 0; //tüm oyunda 83 platform spawn ediliyor
-
-        this.hearts = 6;
 
         this.lastEnemyY = 0;
         this.enemyGap = 900; // düşmanların spawn aralığı
-        this.enemySpawned = 0; // düşman sayacı
 
-        this.score = 0;
         this.lastCoinY = 650;
         this.coinGap = 100;
-        this.coinSpawned = 0;
 
         this.inSpace = false;
 
         this.fallHandled = false;
+
+        this.gameMetrics = {
+            startTime: this.time.now,
+            endTime: null,
+            platformsSpawned: 0, //platform sayacı : 87
+            enemySpawned: 0, // düşman sayacı : 13
+            coinSpawned: 0, // coin sayacı : 122
+            coinCollected: 0, // coin toplanma sayacı
+            trophySpawned: false, // trophy spawn edildi mi?
+            trophyCollected: false, // trophy alındı mı?
+            damageTaken: 0, // hasar sayacı
+            jumpCount: 0, // zıplama sayacı
+            score: 0, // toplam skor
+            hearts: 6 // kalan kalp sayısı
+        };
+
 
         this.isMobile = this.sys.game.device.input.touch;
 
@@ -353,16 +365,7 @@ class GameScene extends Phaser.Scene {
             this.handleBulletHit(bullet);
         });
 
-        // Trophy'yi victoryY konumuna yerleştir
-        this.trophy = this.physics.add.sprite(config.width / 2, this.victoryY, 'trophy');
-        this.trophy.setScale(0.2);
-        this.trophy.body.setSize(this.trophy.width * 0.2, this.trophy.height * 0.2);
-        this.trophy.body.setAllowGravity(false);
-        this.trophy.setImmovable(true);
 
-        this.physics.add.overlap(this.player, this.trophy, () => {
-            this.handleVictory();
-        }, null, this);
 
         this.sound.play('backgroundMusic', { loop: true, volume: 0.5 });
     }
@@ -381,7 +384,6 @@ class GameScene extends Phaser.Scene {
         }
         if (this.player.y < this.maxHeight) {
             this.maxHeight = this.player.y;
-            console.log('maxHeight: ' + this.maxHeight);
         }
         if (!this.fallHandled && this.player.y > this.maxHeight + config.height / 2 + 50) {
             this.handleFall();
@@ -395,7 +397,7 @@ class GameScene extends Phaser.Scene {
 
         this.spawnHighPoint = this.player.y - config.height / 2;
         if (this.lastPlatformY > this.spawnHighPoint && this.lastPlatformY > this.victoryY) {
-            switch (this.platformsSpawned % 5) {
+            switch (this.gameMetrics.platformsSpawned % 5) {
                 case 0:
                     this.platformSpawner('normal');
                     break;
@@ -418,7 +420,7 @@ class GameScene extends Phaser.Scene {
                 this.enemySpawner('bird');
             }
             else {
-                switch (this.enemySpawned % 2) {
+                switch (this.gameMetrics.enemySpawned % 2) {
                     case 0:
                         this.enemySpawner('ufo');
                         break;
@@ -438,6 +440,10 @@ class GameScene extends Phaser.Scene {
                 bullet.destroy();
             }
         });
+        if (!this.gameMetrics.trophySpawned && this.player.y < this.victoryY + 1000) {
+            this.addTrophy();
+            this.gameMetrics.trophySpawned = true;
+        }
     }
 
     addUIElements() {
@@ -461,7 +467,7 @@ class GameScene extends Phaser.Scene {
         this.itemScoreText.setDepth(15)
 
         this.heartIcons = [];
-        for (let i = 0; i < this.hearts; i++) {
+        for (let i = 0; i < this.gameMetrics.hearts; i++) {
             let heart = this.add.image(65 + i * 20, 100, 'healthPoint');
             heart.setScale(0.12); // İsteğe göre ayarla
             heart.setScrollFactor(0); // Kamerayla sabit kalsın
@@ -581,6 +587,7 @@ class GameScene extends Phaser.Scene {
         this.handlePlatformAnimation(platform);
         this.animatePlayerLanding(this.player);
         this.sound.play('jump', { volume: 0.5 });
+        this.gameMetrics.jumpCount++;
     }
     handlePlatformAnimation(platform) {
         this.tweens.add({
@@ -644,64 +651,90 @@ class GameScene extends Phaser.Scene {
     handleGameOver() {
         this.gameActive = false;
         this.physics.world.pause();
+        this.gameMetrics.endTime = this.time.now;
         this.time.delayedCall(1000, () => {
             this.scene.start('GameOverScene', { score: this.score });
         });
+        this.writeStats();
     }
     handleFall() {
         this.fallHandled = true; // tekrar çağrılmasın
 
         this.gameActive = false;
         this.physics.world.pause();
-
+        this.gameMetrics.endTime = this.time.now;
         this.sound.stopAll();
         this.sound.play('uh-oh', { volume: 0.5 });
 
         this.time.delayedCall(1000, () => {
             this.scene.start('GameOverScene', { score: this.score });
         });
+        this.submitScoreToServer();
     }
 
     handleVictory() {
+        this.gameMetrics.trophyCollected = true;
         this.gameActive = false;
         this.sound.stopAll();
         this.physics.world.pause();
+        this.gameMetrics.endTime = this.time.now;
         this.time.delayedCall(500, () => {
             this.scene.start('WinScene', { score: this.score });
         });
+        this.submitScoreToServer();
+    }
+    submitScoreToServer() {
+        const metrics = this.scene.get('GameScene').gameMetrics;
+        metrics.endTime = Date.now();
+        metrics.durationSeconds = Math.floor((metrics.endTime - metrics.startTime) / 1000);
+
+        fetch('https://localhost:5001/api/gamescore/submit', {  // localhost portunu projenin portuna göre değiştir
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(metrics)
+        })
+            .then(response => {
+                if (!response.ok) throw new Error("API hatası");
+                return response.json();
+            })
+            .then(result => {
+                console.log("Skor başarıyla gönderildi:", result);
+            })
+            .catch(error => {
+                console.error("Skor gönderimi başarısız:", error);
+            });
     }
 
     handleEnemyHit(enemy) {
         this.sound.play('damageSound', { volume: 0.5 });
-        if (this.hearts >= 3) {
+        if (this.gameMetrics.hearts >= 3) {
             for (let i = 0; i < 3; i++) {
                 this.handleDamage();
             }
         }
         else {
-            for (let i = 0; i < this.hearts; i++) {
+            for (let i = 0; i < this.gameMetrics.hearts; i++) {
                 this.handleDamage();
             }
         }
         enemy.destroy();
-        if (this.hearts < 1) {
+        if (this.gameMetrics.hearts < 1) {
             this.handleGameOver();
         }
-        console.log('hearts: ' + this.hearts);
     }
     handleBulletHit(bullet) {
         this.handleDamage();
         this.sound.play('damageSound', { volume: 0.5 });
         bullet.destroy();
-        if (this.hearts < 1) {
+        if (this.gameMetrics.hearts < 1) {
             this.handleGameOver();
         }
-        console.log('hearts' + this.hearts)
     }
 
     handleDamage() {
-        this.hearts -= 1;
-        const heartToRemove = this.heartIcons[this.hearts];
+        this.gameMetrics.hearts -= 1;
+        this.gameMetrics.damageTaken++;
+        const heartToRemove = this.heartIcons[this.gameMetrics.hearts];
         this.player.setTint(0xff0000); // Kırmızı
 
         this.time.delayedCall(1000, () => {
@@ -726,17 +759,25 @@ class GameScene extends Phaser.Scene {
         this.coin.body.setAllowGravity(false);
         this.coin.setScale(0.1);
         this.lastCoinY = this.coin.y;
-        this.coinSpawned++;
-        console.log(this.coinSpawned)
+        this.gameMetrics.coinSpawned++;
     }
     collectCoin(coin) {
         coin.destroy();
         this.sound.play('coinSound', { volume: 0.5 });
         this.score += 10;
+        this.gameMetrics.coinCollected++;
         this.itemScoreText.setText(this.score);
-        console.log('score: ' + this.score)
     }
-
+    addTrophy() {
+        this.trophy = this.physics.add.sprite(config.width / 2, this.victoryY, 'trophy');
+        this.trophy.setScale(0.2);
+        this.trophy.body.setSize(this.trophy.width * 0.2, this.trophy.height * 0.2);
+        this.trophy.body.setAllowGravity(false);
+        this.trophy.setImmovable(true);
+        this.physics.add.overlap(this.player, this.trophy, () => {
+            this.handleVictory();
+        }, null, this);
+    }
     addNormalPlatform() {
         let y = this.lastPlatformY - this.platformGap;
         let platformTexture = this.inSpace ? 'platformSpace' : 'platform';
@@ -747,7 +788,7 @@ class GameScene extends Phaser.Scene {
         this.platform.body.setOffset(this.platform.width * 0.1, 0);
 
         this.lastPlatformY = this.platform.y;
-        this.platformsSpawned++;
+        this.gameMetrics.platformsSpawned++;
     }
     addMovingPlatform() {
         let y = this.lastPlatformY - this.platformGap;
@@ -761,7 +802,7 @@ class GameScene extends Phaser.Scene {
         this.movingPlatform.body.setOffset(this.movingPlatform.width * 0.1, 0);
 
         this.lastPlatformY = this.movingPlatform.y;
-        this.platformsSpawned++;
+        this.gameMetrics.platformsSpawned++;
 
         // Hareketli platformun hareketi
         this.tweens.add({
@@ -798,7 +839,7 @@ class GameScene extends Phaser.Scene {
         this.breakingPlatform.body.setOffset(this.breakingPlatform.width * 0.1, 0);
 
         this.lastPlatformY = this.breakingPlatform.y;
-        this.platformsSpawned++;
+        this.gameMetrics.platformsSpawned++;
 
 
         if (this.inSpace) {
@@ -833,7 +874,7 @@ class GameScene extends Phaser.Scene {
         bird.setImmovable(true);
 
         this.lastEnemyY = bird.y;
-        this.enemySpawned++;
+        this.gameMetrics.enemySpawned++;
         this.addSoundToEnemy('bird');
 
         let movementDistance = Phaser.Math.Between(100, 200);
@@ -870,7 +911,7 @@ class GameScene extends Phaser.Scene {
         ufo.body.moves = false;
         ufo.setImmovable(true);
         this.lastEnemyY = ufo.y;
-        this.enemySpawned++;
+        this.gameMetrics.enemySpawned++;
         this.addSoundToEnemy('ufo');
 
         this.tweens.add({
@@ -899,7 +940,7 @@ class GameScene extends Phaser.Scene {
         this.addSoundToEnemy('alien');
 
         this.lastEnemyY = alien.y;
-        this.enemySpawned++;
+        this.gameMetrics.enemySpawned++;
 
         this.tweens.add({
             targets: alien,
@@ -972,6 +1013,23 @@ class GameScene extends Phaser.Scene {
                 return;
         }
         this.sound.play(soundKey, { volume: 0.5 });
+    }
+    writeStats() {
+        console.log('Game Statistics:');
+        console.log('Start Time: ' + this.gameMetrics.startTime);
+        console.log('End Time: ' + this.gameMetrics.endTime);
+        console.log('Game Duration: ' + ((this.gameMetrics.endTime - this.gameMetrics.startTime) / 1000).toFixed(2) + ' seconds');
+        console.log('Total Jumps Made: ' + this.gameMetrics.jumpCount);
+        console.log('Maximum Height Reached: ' + this.maxHeight);
+        console.log('Total Score: ' + this.score);
+        console.log('Total Platforms Spawned: ' + this.gameMetrics.platformsSpawned);
+        console.log('Total Coins Spawned: ' + this.gameMetrics.coinSpawned);
+        console.log('Total Coins Collected: ' + this.gameMetrics.coinCollected);
+        console.log('Total Enemies Spawned: ' + this.gameMetrics.enemySpawned);
+        console.log('Total Damage Taken: ' + this.gameMetrics.damageTaken);
+        console.log('Total Hearts Remaining: ' + this.gameMetrics.hearts);
+        console.log('Trophy Spawned: ' + (this.gameMetrics.trophySpawned ? 'Yes' : 'No'));
+        console.log('Trophy Collected: ' + (this.gameMetrics.trophyCollected ? 'Yes' : 'No'));
     }
 }
 
